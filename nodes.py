@@ -14,8 +14,13 @@ class LoadImageWithFilename:
         input_dir = folder_paths.get_input_directory()
         files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
         files = folder_paths.filter_files_content_types(files, ["image"])
-        return {"required":
-                    {"image": (sorted(files), {"image_upload": True})},
+        return {"required": {
+                    "image": (sorted(files), {"image_upload": True, "tooltip": "stick to input folder"})
+                    },
+                "optional": {
+                    "filename": ("STRING", {"default": "", "tooltip": "Single filename."}),
+                    "is_from_output": ("BOOLEAN", {"default": False})
+                    }
                 }
 
     CATEGORY = "image"
@@ -24,8 +29,19 @@ class LoadImageWithFilename:
     RETURN_NAMES = ("image", "mask", "filename")
     FUNCTION = "load_image"
 
-    def load_image(self, image):
-        image_path = folder_paths.get_annotated_filepath(image)
+
+    def _load_get_image_path(self, image, filename, is_from_output):
+        if filename == "":
+            filename = image_path = folder_paths.get_annotated_filepath(image)
+        else:
+            if is_from_output:
+                filename = folder_paths.get_output_directory() + '/' + filename
+            else:
+                filename = folder_paths.get_input_directory() + '/' + filename
+        return filename
+
+    def load_image(self, image, filename, is_from_output):
+        image_path = self._load_get_image_path(image, filename, is_from_output)
 
         img = node_helpers.pillow(Image.open, image_path)
 
@@ -75,8 +91,8 @@ class LoadImageWithFilename:
         return (output_image, output_mask, filename)
 
     @classmethod
-    def IS_CHANGED(s, image):
-        image_path = folder_paths.get_annotated_filepath(image)
+    def IS_CHANGED(s, image, filename, is_from_output):
+        image_path = s._load_get_image_path(image, filename, is_from_output)
         m = hashlib.sha256()
         with open(image_path, 'rb') as f:
             m.update(f.read())
@@ -88,7 +104,6 @@ class LoadImageWithFilename:
             return "Invalid image file: {}".format(image)
 
         return True
-
 
 class LoadImageFolder:
     @classmethod
@@ -308,7 +323,7 @@ class SaveImageWithFilename:
                     file = f"{base_name}.png"
                 else:
                     # Use default naming
-                    filename_with_batch_num = filename.replace("%batch_num%", str(batch_number))
+                    filename_with_batch_num = filename.replace("%batch_num%", str(batch_number).zfill(4))
                     file = f"{filename_with_batch_num}_{counter:05}_.png"
 
                 img.save(os.path.join(full_output_folder, file), pnginfo=metadata, compress_level=self.compress_level)
@@ -338,7 +353,9 @@ class SaveImageWithFilename:
                 file = f"{base_name}.png"
 
                 # Save to output directory
-                img.save(os.path.join(self.output_dir, file), pnginfo=metadata, compress_level=self.compress_level)
+                final_file_path = os.path.join(self.output_dir, file)
+                os.makedirs(os.path.dirname(final_file_path), exist_ok=True)
+                img.save(final_file_path, pnginfo=metadata, compress_level=self.compress_level)
                 results.append({
                     "filename": file,
                     "subfolder": "",
